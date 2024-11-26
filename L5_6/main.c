@@ -333,7 +333,45 @@ bool invMatrix(float** A, float** A_inv, int n) {
 
 float* readStepResponse(char* filename)
 {
-	// TODO: Implement reading step response from file
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        perror("Cannot open a file");
+        return 1;
+    }
+
+    float *array = NULL; 
+    size_t array_size = 0; 
+    char line[MAX_LINE_LENGTH];
+
+    while (fgets(line, sizeof(line), file)) {
+        char *token = strtok(line, ",");
+        while (token != NULL) {
+            float *temp = realloc(array, (array_size + 1) * sizeof(float));
+            if (!temp) {
+                perror("Allocation error");
+                free(array);
+                fclose(file);
+                return 1;
+            }
+            array = temp;
+
+            if (is_nan(token)) {
+                array[array_size] = NAN; 
+            } else {
+                array[array_size] = atof(token); 
+            }
+
+            array_size++;
+            token = strtok(NULL, ",");
+        }
+    }
+    fclose(file);
+
+	return array;
+}
+
+int is_nan(const char *str) {
+    return strcmp(str, "NaN") == 0;
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
