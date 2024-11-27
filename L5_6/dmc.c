@@ -1,9 +1,10 @@
 #include <stdio.h>
 
-#define D 200
-#define N 200
-#define Nu 200
-#define lambda 1
+#define D 20
+#define N 10
+#define Nu 1
+#define lambda 10
+#define MAX_LINE_LENGTH 1024
 
 float M[N][Nu];
 float MP[N][D - 1];
@@ -14,12 +15,14 @@ float Lambda[Nu][Nu];
 float MTM_Lambda[Nu][Nu];
 float MTM_Lambda_inv[Nu][Nu];
 
-float S[D];
+float S[] = {0.019f, 0.057f, 0.153f, 0.264f, 0.367f, 0.475f, 0.564f, 0.636f, 0.706f, 0.755f,
+             0.806f, 0.847f, 0.878f, 0.906f, 0.928f, 0.943f, 0.957f, 0.970f, 0.983f, 0.997f};
 
-float u[300];
-float y[300];
-float y_zad = 2;
+float u[100];
+float y[100];
+float y_zad[100];
 
+float set_value = 500.0f;
 
 // Funkcja do obliczania macierzy odwrotnej za pomocą eliminacji Gaussa-Jordana
 void invertMatrix(float A[Nu][Nu], float inverse[Nu][Nu]) {
@@ -130,10 +133,17 @@ void initDMC(void)
 			}
 		}
 	}
+
+	for (int i = 0; i < 30; i++) {
+        y_zad[i] = 25.0f;
+    }
+    for (int i = 30; i < 100; i++) {
+        y_zad[i] = set_value;
+    }
 }
 
 
-void DMC(int k, float y_process)
+float DMC(int k, float y_process)
 {
 	y[k] = y_process;
 
@@ -155,7 +165,7 @@ void DMC(int k, float y_process)
 
 	for (int i = 0; i < N; i++)
 	{
-		Y0[i][0] = y_zad - Y0[i][0];
+		Y0[i][0] = y_zad[k] - Y0[i][0];
 	}
 
 	// Prawo regulacji
@@ -180,24 +190,6 @@ void DMC(int k, float y_process)
 		dUP[i][0] = dUP[i - 1][0];
 	}
 	dUP[0][0] = dU[0][0];
-}
 
-int main()
-{
-	for (int i = 0; i < D; ++i)
-	{
-		S[i] = -3.0 / ((float)i/10 + 1.0) + 3.0;
-	}
-
-	initDMC();
-
-	y[0] = 0.0;
-	u[0] = 0.0;
-	for (int k = 1; k < 100; k++)
-	{
-		y[k] = y[k - 1] + u[k - 1] * 0.3;
-		DMC(k, y[k]);
-		printf("%.4f\t%.4f", u[k], y[k]);
-		printf("\n");
-	}
+	return u[k];
 }

@@ -35,6 +35,8 @@
 //#include "stm32f746g_discovery_ts_remote.h"
 #include "string.h"
 
+#include "dmc.h"
+
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc3;
 DMA_HandleTypeDef hdma_adc3;
@@ -57,46 +59,34 @@ SDRAM_HandleTypeDef hsdram1;
 /* REGULATION VARIABLES*/
 
 // PID variables
-float Kp = 20.0f;
-float Ti = 10000.0f;
-float Td = 0.0f;
+float Kp = 1.0f; // Ziegler Nichols Ku=16, Tu=0.55s
+float Ti = 1.0f;
+float Td = 1.0f;
+float Tv = 10000.0f;
 
 float integral_sum = 0.0f;
 float e_last = 0.0f;
 float T = 0.1f;
 
-float set_value = 500.0f;
-char controller = 'P'; // P - PID, D - DMC
+float u_last = 0.0f;
+float uw_last = 0.0f;
+
+float y_process;
+
+char controller = 'D'; // P - PID, D - DMC
+
+float set_value_pid = 500.0f;
 
 // DMC variables
-float Upp = 0.0f;
-float Ypp = 25.0f;
-float du = 500.0f;
-float du_min = 4095.0f;
-float du_max = -4095.0f;
-
 float u_min = -2048.0f;
 float u_max = 2047.0f;
 
-int N = 30;
-int Nu = 1; 
-int D = 30;
-float lambda = 1.0f;
-int set_time = 30;
-int kend = 200;
-float* y;
-float* u;
-float* s;
+float Upp = 0.0f;
+float Ypp = 25.0f;
 
-float M[N][Nu];
-float MP[N][D - 1];
-float I[Nu][Nu];
-float MTM[Nu][Nu], MTM_lambdaI[Nu][Nu];
-float MTM_lambdaI_inv[Nu][Nu];
-float K[Nu][N];
-float Ku[D - 1], Ke = 0.0f;
-float deltauk_p[D - 1];
-float y_zad[kend];
+int set_time = 30;
+int kend = 100;
+float* s;
 
 // Iteration count
 int k = 0;
@@ -138,9 +128,9 @@ static void MX_USART1_UART_Init(void);
 
 float PIDIteration(void)
 {
-	float e = set_value - y;
+	float e = set_value_pid - y_process;
 	float up = Kp * e;
-	float ui = integral_sum + Kp * T * (e_last + e) / (2 * Ti);
+	float ui = integral_sum + Kp * T * (e_last + e) / (2 * Ti) + T * (uw_last - u_last) / Tv;
 	float ud = Kp * Td * (e - e_last) / T;
 
 	float u = ui + up + ud;
@@ -149,229 +139,6 @@ float PIDIteration(void)
 	integral_sum = ui;
 
 	return u;
-}
-
-float DMCIteration(int k, float y_process)
-{
-	// Generate process output (implement separately)
-	y[k] = y_process;
-
-	// Compute error
-	float ek = y_zad[k] - y[k];
-
-	// Compute deltau variable for given control horizon
-	float deltauk = Ke * ek;
-	for (int i = 0; i < D - 1; i++) {
-		deltauk -= Ku[i] * deltauk_p[i];
-	}
-
-	// Back deltau window
-	for (int n = D - 2; n > 0; n--) {
-		deltauk_p[n] = deltauk_p[n - 1];
-	}
-
-	// Constrain deltau
-	if (deltauk < du_min) deltauk = du_min;
-	if (deltauk > du_max) deltauk = du_max;
-
-	// Manipulate variable for time k
-	u[k] = u[k - 1] + deltauk;
-
-	// Constrain u
-	if (u[k] < u_min) u[k] = u_min;
-	if (u[k] > u_max) u[k] = u_max;
-
-	// Delta u for time k
-	deltauk_p[0] = u[k] - u[k - 1];
-
-	return u[k];
-}
-
-void InitDMC(void)
-{
-	s = readStepResponse("step_response.txt");
-
-	memset(M, 0, sizeof(M));
-    for (int i = 0; i < Nu; i++) {
-        for (int j = i; j < N; j++) {
-            M[j][i] = s[j - i];
-        }
-    }
-
-	memset(MP, 0, sizeof(MP));
-    for (int i = 0; i < N; i++) {
-        for (int j = 0; j < D - 1; j++) {
-            if (i + j < D) {
-                MP[i][j] = s[i + j] - s[j];
-            } else {
-                MP[i][j] = s[D - 1] - s[j];
-            }
-        }
-    }
-
-	memset(I, 0, sizeof(I));
-    for (int i = 0; i < Nu; i++) {
-        I[i][i] = 1.0f;
-    }
-
-	memset(MTM, 0, sizeof(MTM));
-    memset(MTM_lambdaI, 0, sizeof(MTM_lambdaI));
-    // Compute M' * M
-    for (int i = 0; i < Nu; i++) {
-        for (int j = 0; j < Nu; j++) {
-            for (int k = 0; k < N; k++) {
-                MTM[i][j] += M[k][i] * M[k][j];
-            }
-            MTM_lambdaI[i][j] = MTM[i][j] + lambda * I[i][j];
-        }
-    }
-
-	invMatrix(MTM_lambdaI, MTM_lambdaI_inv, Nu);
-
-	memset(K, 0, sizeof(K));
-    for (int i = 0; i < Nu; i++) {
-        for (int j = 0; j < N; j++) {
-            for (int k = 0; k < Nu; k++) {
-                K[i][j] += MTM_lambdaI_inv[i][k] * M[j][k];
-            }
-        }
-    }
-
-	memset(Ku, 0, sizeof(Ku));
-    for (int i = 0; i < D - 1; i++) {
-        for (int j = 0; j < N; j++) {
-            Ku[i] += K[0][j] * MP[j][i];
-        }
-    }
-    for (int i = 0; i < Nu; i++) {
-        Ke += K[0][i];
-    }
-
-	for (int i = 0; i < kend; i++) {
-        y[i] = Ypp;
-        u[i] = Upp;
-    }
-
-	memset(deltauk_p, 0, sizeof(deltauk_p));
-
-	for (int i = 0; i < set_time; i++) {
-        y_zad[i] = Ypp;
-    }
-    for (int i = set_time; i < kend; i++) {
-        y_zad[i] = set_value;
-    }
-}
-
-bool invMatrix(float** A, float** A_inv, int n) {
-    // Create augmented matrix [A | I]
-    float** aug = (float**)malloc(n * sizeof(float*));
-    for (int i = 0; i < n; i++) {
-        aug[i] = (float*)malloc(2 * n * sizeof(float));
-        for (int j = 0; j < n; j++) {
-            aug[i][j] = A[i][j]; // Copy A to the left side
-            aug[i][j + n] = (i == j) ? 1.0f : 0.0f; // Identity matrix on the right side
-        }
-    }
-
-    // Perform Gaussian elimination
-    for (int i = 0; i < n; i++) {
-        // Find the pivot row
-        float maxVal = fabs(aug[i][i]);
-        int pivotRow = i;
-        for (int k = i + 1; k < n; k++) {
-            if (fabs(aug[k][i]) > maxVal) {
-                maxVal = fabs(aug[k][i]);
-                pivotRow = k;
-            }
-        }
-
-        // Swap the current row with the pivot row
-        if (pivotRow != i) {
-            float* temp = aug[i];
-            aug[i] = aug[pivotRow];
-            aug[pivotRow] = temp;
-        }
-
-        // Check if the matrix is singular
-        if (fabs(aug[i][i]) < 1e-6) {
-            // Free memory and return false for singular matrix
-            for (int j = 0; j < n; j++) free(aug[j]);
-            free(aug);
-            return false;
-        }
-
-        // Normalize the pivot row
-        float pivot = aug[i][i];
-        for (int j = 0; j < 2 * n; j++) {
-            aug[i][j] /= pivot;
-        }
-
-        // Eliminate other rows
-        for (int k = 0; k < n; k++) {
-            if (k != i) {
-                float factor = aug[k][i];
-                for (int j = 0; j < 2 * n; j++) {
-                    aug[k][j] -= factor * aug[i][j];
-                }
-            }
-        }
-    }
-
-    // Extract the inverse matrix from the augmented matrix
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            A_inv[i][j] = aug[i][j + n];
-        }
-    }
-
-    // Free memory for the augmented matrix
-    for (int i = 0; i < n; i++) free(aug[i]);
-    free(aug);
-
-    return true;
-}
-
-float* readStepResponse(char* filename)
-{
-    FILE *file = fopen(filename, "r");
-    if (!file) {
-        perror("Cannot open a file");
-        return 1;
-    }
-
-    float *array = NULL; 
-    size_t array_size = 0; 
-    char line[MAX_LINE_LENGTH];
-
-    while (fgets(line, sizeof(line), file)) {
-        char *token = strtok(line, ",");
-        while (token != NULL) {
-            float *temp = realloc(array, (array_size + 1) * sizeof(float));
-            if (!temp) {
-                perror("Allocation error");
-                free(array);
-                fclose(file);
-                return 1;
-            }
-            array = temp;
-
-            if (is_nan(token)) {
-                array[array_size] = NAN; 
-            } else {
-                array[array_size] = atof(token); 
-            }
-
-            array_size++;
-            token = strtok(NULL, ",");
-        }
-    }
-    fclose(file);
-
-	return array;
-}
-
-int is_nan(const char *str) {
-    return strcmp(str, "NaN") == 0;
 }
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
@@ -428,7 +195,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* AdcHandle)
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if(htim->Instance == TIM2){
-		static float y_process = 0.0f;
+//		static float y_process = 0.0f;
 		static float u_process = 0.0f;
 		y_process = (input-2048.0f); // przejscie z 0 - 4095 do -2048 - 2047
 
@@ -444,7 +211,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 			{
 				if (k < kend)
 				{
-					u_process = DMCIteration(k, y_process);
+					u_process = DMC(k, y_process);
 				}
 				else
 				{
@@ -465,10 +232,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 //			u = 500.0;
 //		}
 
+		u_last = u_process;
+
 		if(u_process >  2047.0f) u_process =  2047.0f;
 		if(u_process < -2048.0f) u_process = -2048.0f;
 		output = u_process+2048.0f; // przejscie z -2048 - 2047 do 0 - 4095
 		updateControlSignalValue(output);
+
+		uw_last = u_process;
 
 		while(HAL_UART_GetState(&huart1) == HAL_UART_STATE_BUSY_TX);
 		sprintf(text,"U=%.2f;Y=%.2f;\n",u_process,y_process);
@@ -570,7 +341,7 @@ int main(void)
 
 	if (controller == 'D')
 	{
-		InitDMC(); // initialize DMC controller variables
+		initDMC(); // initialize DMC controller variables
 	}
 
 	while (1)
