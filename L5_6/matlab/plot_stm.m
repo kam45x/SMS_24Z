@@ -2,7 +2,7 @@ delete(instrfindall);
 close all;
 clear all;
 
-s = serial('COM4');%COM9tojestportutworzonyprzezmikrokontroler
+s = serial('COM4'); % COM4 to jest port utworzony przez mikrokontroler
 set(s,'BaudRate',115200);
 set(s,'StopBits',1);
 set(s,'Parity','none');
@@ -10,16 +10,16 @@ set(s,'DataBits',8);
 set(s,'Timeout',1);
 set(s,'InputBufferSize',1000);
 set(s,'Terminator',13);
-fopen(s);%otwarciekanalukomunikacyjnego
+fopen(s);% otwarcie kanalu komunikacyjnego
 
-Tp = 0.1; % czas w jakim próbuje regulator
+Tp = 0.1; % czas w jakim próbkuje regulator
 y_all = []; % wektor wyjść obiektu
-u_all = []; % wektor wejść sterowanych obiektu
+u_all = []; % wektor sterowań obiektu
 yzad = [];
-while length(y_all) <= 250 % zbieramy dużo pomiarów, 249 wartości
+while length(y_all) <= 250
     txt = fgetl(s);
     disp(txt);
-    eval(char(txt')); % wykonamy co do otrzymujemy
+    eval(char(txt')); 
     
     % Wyodrębnienie wartości U i Y
     matches_U = regexp(txt, 'U=([\d.]+)', 'tokens'); % Szuka U=wartość

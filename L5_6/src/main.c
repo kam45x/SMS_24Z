@@ -72,6 +72,7 @@ float u_last = 0.0f;
 float uw_last = 0.0f;
 
 float y_process;
+float u_process;
 
 char controller = 'D'; // P - PID, D - DMC
 
@@ -193,14 +194,12 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* AdcHandle)
 	input = tmpval/ADC_BUFFER_LENGTH;
 }
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
 	if(htim->Instance == TIM2){
-//		static float y_process = 0.0f;
-		static float u_process = 0.0f;
 		y_process = (input-2048.0f); // przejscie z 0 - 4095 do -2048 - 2047
 
 		/* --- TUTAJ ALGORYTM REGULACJI --- */
-
 		if (k >= set_time)
 		{
 			if(controller == 'P')
@@ -223,14 +222,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		{
 			u_process = Upp;
 		}
-
 		/* -- KONIEC ALGORYTMU REGULACJI -- */
-
-		// Odpowiedz skokowa
-//		if (k >= 100)
-//		{
-//			u = 500.0;
-//		}
 
 		u_last = u_process;
 
