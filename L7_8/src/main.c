@@ -238,6 +238,41 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 	if(huart->Instance == USART6)
 		UART_MB_sending = 0;
 }
+
+void DrawButtonGreen(void)
+{
+  BSP_LCD_DrawRect(10, 220, 80, 42);
+  BSP_LCD_SetTextColor(LCD_COLOR_GREEN);
+  BSP_LCD_FillRect(11, 221, 79, 41);
+  BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+  BSP_LCD_SetBackColor(LCD_COLOR_GREEN);
+  BSP_LCD_SetFont(&Font24);
+  BSP_LCD_DisplayStringAt(18, 230, "AUTO", LEFT_MODE);
+  BSP_LCD_SetFont(&Font16);
+}
+
+void DrawButtonGray(void)
+{
+  BSP_LCD_DrawRect(10, 220, 80, 42);
+  BSP_LCD_SetTextColor(LCD_COLOR_GRAY);
+  BSP_LCD_FillRect(11, 221, 79, 41);
+  BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+  BSP_LCD_SetBackColor(LCD_COLOR_GRAY);
+  BSP_LCD_SetFont(&Font24);
+  BSP_LCD_DisplayStringAt(18, 230, "AUTO", LEFT_MODE);
+  BSP_LCD_SetFont(&Font16);
+}
+
+void DrawSlider(int y)
+{
+  BSP_LCD_DrawRect(10, 35, 80, 175);
+  BSP_LCD_SetTextColor(LCD_COLOR_GRAY);
+  BSP_LCD_FillRect(11, y, 79, 175-y);
+  BSP_LCD_DisplayStringAt(12, 12, "Yzad=50", LEFT_MODE);
+}
+
+
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if(htim->Instance == TIM2){
 		static uint16_t raw_y = 2345;
@@ -299,6 +334,41 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		BSP_LCD_SetFont(&Font16);
 
 		// Button
+    if(TSS->touchDetected > 0)
+    {
+      lastx = TSS->touchX[0];
+	    lasty = TSS->touchY[0];
+
+      if lastx > 10 && lastx < 90 && lasty > 220 && lasty < 262
+      {
+        // Tutaj jakiś warunek typu clicked
+      }
+      else if lastx > 10 && lastx < 90 && lasty > 35 && lasty < 210
+      {
+        if clicked
+        {
+          u_process = (210 - lasty) / 1.75;
+          DrawSlider(y);
+        }
+        else
+        {
+          y_zadane  = (210 - lasty) / 1.75;
+          DrawSlider(y);`
+        }
+      }
+    }
+
+    if clicked
+    {
+      DrawButtonGreen()
+    }
+    else
+    {
+      DrawButtonGray()
+    }
+
+
+
 		BSP_LCD_DrawRect(10, 220, 80, 42);
 		BSP_LCD_SetTextColor(LCD_COLOR_GREEN);
 		BSP_LCD_FillRect(11, 221, 79, 41);
