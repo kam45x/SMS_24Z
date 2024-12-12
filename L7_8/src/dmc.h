@@ -1,9 +1,9 @@
 #include <stdio.h>
 
-#define D 20
-#define N 10
+#define D 340
+#define N 50
 #define Nu 1
-#define lambda 10
+#define lambda 0.1
 
 float M[N][Nu];
 float MP[N][D - 1];
@@ -63,7 +63,7 @@ float Upp = 0.0f;
 float Ypp = 41.18f;
 
 int set_time = 10;
-float set_value = Ypp;
+float set_value = 41.18f;
 
 int kend = 500;
 float* s;

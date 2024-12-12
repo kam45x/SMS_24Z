@@ -35,6 +35,7 @@
 #include "modbus.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 #include "stm32f746g_discovery_lcd.h"
 //#include "stm32746g_discovery_lcd.h"
 #include "stm32746g_discovery_ts.h"
@@ -123,6 +124,12 @@ int k = 1;
 
 int x_line_u = 101;
 int x_line_y = 291;
+
+bool auto_clicked = true;
+bool last_click_auto = false;
+
+float y_process = 0.0f;
+float u_process = 0.0f;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -211,7 +218,6 @@ void DrawCalibrationCross(uint32_t x, uint32_t y){
 }
 
 void HAL_LTDC_LineEventCallback(LTDC_HandleTypeDef *hltdc){
-  DrawPointOfTouch(&TS_State);    // TODO Delete if needed
   HAL_LTDC_ProgramLineEvent(hltdc, 272);
 }
 
@@ -241,44 +247,73 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 
 void DrawButtonGreen(void)
 {
-  BSP_LCD_DrawRect(10, 220, 80, 42);
-  BSP_LCD_SetTextColor(LCD_COLOR_GREEN);
-  BSP_LCD_FillRect(11, 221, 79, 41);
-  BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
-  BSP_LCD_SetBackColor(LCD_COLOR_GREEN);
-  BSP_LCD_SetFont(&Font24);
-  BSP_LCD_DisplayStringAt(18, 230, "AUTO", LEFT_MODE);
-  BSP_LCD_SetFont(&Font16);
+	BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
+	BSP_LCD_FillRect(11, 221, 79, 41);
+	BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+	BSP_LCD_DrawRect(10, 220, 80, 42);
+	BSP_LCD_SetTextColor(LCD_COLOR_GREEN);
+	BSP_LCD_FillRect(11, 221, 79, 41);
+	BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+	BSP_LCD_SetBackColor(LCD_COLOR_GREEN);
+	BSP_LCD_SetFont(&Font24);
+	BSP_LCD_DisplayStringAt(18, 230, "AUTO", LEFT_MODE);
+	BSP_LCD_SetFont(&Font16);
 }
 
 void DrawButtonGray(void)
 {
-  BSP_LCD_DrawRect(10, 220, 80, 42);
-  BSP_LCD_SetTextColor(LCD_COLOR_GRAY);
-  BSP_LCD_FillRect(11, 221, 79, 41);
-  BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
-  BSP_LCD_SetBackColor(LCD_COLOR_GRAY);
-  BSP_LCD_SetFont(&Font24);
-  BSP_LCD_DisplayStringAt(18, 230, "AUTO", LEFT_MODE);
-  BSP_LCD_SetFont(&Font16);
+	BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
+	BSP_LCD_FillRect(11, 221, 79, 41);
+	BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+	BSP_LCD_DrawRect(10, 220, 80, 42);
+	BSP_LCD_SetTextColor(LCD_COLOR_GRAY);
+	BSP_LCD_FillRect(11, 221, 79, 41);
+	BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+	BSP_LCD_SetBackColor(LCD_COLOR_GRAY);
+	BSP_LCD_SetFont(&Font24);
+	BSP_LCD_DisplayStringAt(18, 230, "AUTO", LEFT_MODE);
+	BSP_LCD_SetFont(&Font16);
 }
 
-void DrawSlider(int y)
+char buffer[12];
+void DrawSliderYzad(int y_line)
 {
+  BSP_LCD_SetBackColor(LCD_COLOR_WHITE);
+  BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+
+  BSP_LCD_SetFont(&Font12);
+  BSP_LCD_DisplayStringAt(12, 12, "            ", LEFT_MODE);
+  sprintf(buffer, "Y_zad=%2.1f", set_value);
+  BSP_LCD_DisplayStringAt(12, 12, buffer, LEFT_MODE);
+
   BSP_LCD_DrawRect(10, 35, 80, 175);
+  BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
+  BSP_LCD_FillRect(11, 36, 79, 174);
   BSP_LCD_SetTextColor(LCD_COLOR_GRAY);
-  BSP_LCD_FillRect(11, y, 79, 175-y);
-  BSP_LCD_DisplayStringAt(12, 12, "Yzad=50", LEFT_MODE);
+  BSP_LCD_FillRect(11, y_line, 79, 210-y_line);
 }
 
+void DrawSliderU(int y_line)
+{
+  BSP_LCD_SetBackColor(LCD_COLOR_WHITE);
+  BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
 
+  BSP_LCD_SetFont(&Font12);
+  sprintf(buffer, "U_zad=%2.1f", u_process);
+  BSP_LCD_DisplayStringAt(12, 12, "            ", LEFT_MODE);
+  BSP_LCD_DisplayStringAt(12, 12, buffer, LEFT_MODE);
+
+  BSP_LCD_DrawRect(10, 35, 80, 175);
+  BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
+  BSP_LCD_FillRect(11, 36, 79, 174);
+  BSP_LCD_SetTextColor(LCD_COLOR_GRAY);
+  BSP_LCD_FillRect(11, y_line, 79, 210-y_line);
+}
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	if(htim->Instance == TIM2){
 		static uint16_t raw_y = 2345;
 		static uint16_t raw_u = 0;
-		static float y_process = 0.0f;
-		static float u_process = 0.0f;
 		MB_SendRequest(SLAVE_ID, FUN_READ_INPUT_REGISTER, get_temp, 4);
 		respstate = MB_GetResponse(SLAVE_ID, FUN_READ_INPUT_REGISTER, &resp, &resplen, 300);
 		if(respstate != RESPONSE_OK) while(1);
@@ -288,26 +323,78 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		}
 
 		/* --- TUTAJ ALGORYTM REGULACJI --- */
-		if (k >= set_time)
+		if (k < kend)
 		{
-            if (k < kend)
-            {
-                u_process = DMC(k, y_process);
-            }
-            else
-            {
-                u_process = u[kend - 1];
-            }
+			float u_dmc = DMC(k, y_process);
+			if (auto_clicked) u_process = u_dmc;
 		}
 		else
 		{
-			u_process = Upp;
+			float u_dmc = u[kend - 1];
+			if (auto_clicked) u_process = u_dmc;
 		}
+
 		/* -- KONIEC ALGORYTMU REGULACJI -- */
+
+		BSP_LCD_SetFont(&Font12);
+		BSP_LCD_SetBackColor(LCD_COLOR_WHITE);
+
+//		BSP_LCD_DrawRect(10, 220, 80, 42);
+//		BSP_LCD_SetTextColor(LCD_COLOR_GREEN);
+//		BSP_LCD_FillRect(11, 221, 79, 41);
+//		BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+//		BSP_LCD_SetBackColor(LCD_COLOR_GREEN);
+//		BSP_LCD_SetFont(&Font24);
+//		BSP_LCD_DisplayStringAt(18, 230, "AUTO", LEFT_MODE);
+//		BSP_LCD_SetFont(&Font12);
+//		BSP_LCD_SetBackColor(LCD_COLOR_WHITE);
+
+		// User input
+		BSP_LCD_DrawRect(10, 35, 80, 175);
+		if (auto_clicked)
+		{
+			sprintf(buffer, "Y_zad=%2.1f", set_value);
+			BSP_LCD_DisplayStringAt(12, 12, "            ", LEFT_MODE);
+			BSP_LCD_DisplayStringAt(12, 12, buffer, LEFT_MODE);
+		}
+		else
+		{
+			sprintf(buffer, "U_zad=%2.1f", u_process);
+		    BSP_LCD_DisplayStringAt(12, 12, "            ", LEFT_MODE);
+		    BSP_LCD_DisplayStringAt(12, 12, buffer, LEFT_MODE);
+		}
 
 		/* aplikacja ograniczen na sygnal sterujacy */
 		if(u_process >   50.0f) u_process =  50.0f;
 		if(u_process <  -50.0f) u_process = -50.0f;
+
+		// U plot
+		BSP_LCD_DrawRect(100, 35, 180, 202);
+
+		BSP_LCD_DrawPixel(x_line_u, 136 - (int)(2*u_process), LCD_COLOR_RED);
+
+		x_line_u++;
+		if (x_line_u > 279)
+		{
+			x_line_u = 101;
+			BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
+			BSP_LCD_FillRect(101, 36, 179, 201);
+
+		}
+
+		// Y plot
+		BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+		BSP_LCD_DrawRect(290, 35, 180, 202);
+		BSP_LCD_DrawPixel(x_line_y, 236 - (int)(2*y_process), LCD_COLOR_RED);
+
+		x_line_y++;
+		if (x_line_y > 469)
+		{
+			x_line_y = 291;
+			BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
+			BSP_LCD_FillRect(291, 36, 179, 201);
+		}
+
 
 		/* skalowanie z -50..50 do 0..1000 */
 		raw_u = (uint16_t)(u_process+50.0f)*10; // przejscie z -2048 - 2047 do 0 - 4095
@@ -328,90 +415,38 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		sprintf(txt,"U=%.2f;Y=%.2f;\n",u_process,y_process); // 22 znaki
 		if(HAL_UART_Transmit_IT(&huart1, (uint8_t*)txt, strlen(txt))!= HAL_OK) Error_Handler();
 
+		BSP_LCD_SetBackColor(LCD_COLOR_WHITE);
+		BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+
+		sprintf(buffer, "  U=%2.1f", u_process);
+		BSP_LCD_DisplayStringAt(155, 12, "          ", LEFT_MODE);
+		BSP_LCD_DisplayStringAt(155, 12, buffer, LEFT_MODE);
+
+		sprintf(buffer, "  Y=%2.1f", y_process);
+		BSP_LCD_DisplayStringAt(345, 12, "          ", LEFT_MODE);
+		BSP_LCD_DisplayStringAt(345, 12, buffer, LEFT_MODE);
+
+		if (y_process > -55 && y_process < 125)
+		{
+			BSP_LCD_SetTextColor(LCD_COLOR_GREEN);
+			BSP_LCD_SetFont(&Font16);
+			BSP_LCD_DisplayStringAt(200, 245, "                ", LEFT_MODE);
+			BSP_LCD_DisplayStringAt(210, 245, "STAN POPRAWNY", LEFT_MODE);
+			BSP_LCD_SetFont(&Font12);
+			BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+		}
+		else
+		{
+			BSP_LCD_SetTextColor(LCD_COLOR_RED);
+			BSP_LCD_SetFont(&Font16);
+			BSP_LCD_DisplayStringAt(200, 245, "                ", LEFT_MODE);
+			BSP_LCD_DisplayStringAt(200, 245, "AWARIA CZUJNIKA", LEFT_MODE);
+			BSP_LCD_SetFont(&Font12);
+			BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
+		}
+
 		++k;
 
-		BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
-		BSP_LCD_SetFont(&Font16);
-
-		// Button
-    if(TSS->touchDetected > 0)
-    {
-      lastx = TSS->touchX[0];
-	    lasty = TSS->touchY[0];
-
-      if lastx > 10 && lastx < 90 && lasty > 220 && lasty < 262
-      {
-        // Tutaj jakiś warunek typu clicked
-      }
-      else if lastx > 10 && lastx < 90 && lasty > 35 && lasty < 210
-      {
-        if clicked
-        {
-          u_process = (210 - lasty) / 1.75;
-          DrawSlider(y);
-        }
-        else
-        {
-          y_zadane  = (210 - lasty) / 1.75;
-          DrawSlider(y);`
-        }
-      }
-    }
-
-    if clicked
-    {
-      DrawButtonGreen()
-    }
-    else
-    {
-      DrawButtonGray()
-    }
-
-
-
-		BSP_LCD_DrawRect(10, 220, 80, 42);
-		BSP_LCD_SetTextColor(LCD_COLOR_GREEN);
-		BSP_LCD_FillRect(11, 221, 79, 41);
-		BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
-		BSP_LCD_SetBackColor(LCD_COLOR_GREEN);
-		BSP_LCD_SetFont(&Font24);
-		BSP_LCD_DisplayStringAt(18, 230, "AUTO", LEFT_MODE);
-		BSP_LCD_SetFont(&Font16);
-		BSP_LCD_SetBackColor(LCD_COLOR_WHITE);
-
-		// User input
-		BSP_LCD_DrawRect(10, 35, 80, 175);
-		BSP_LCD_DisplayStringAt(12, 12, "Yzad=50", LEFT_MODE);
-
-		// U plot
-		BSP_LCD_DrawRect(100, 35, 180, 202);
-
-		BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-		BSP_LCD_DrawVLine(x_line_u, 36, 200);
-		BSP_LCD_DrawPixel(x_line_u, 136 - (int)(2*u_process), LCD_COLOR_RED);
-		BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
-		BSP_LCD_DrawVLine(x_line_u + 1, 36, 200);
-
-		x_line_u++;
-		if (x_line_u > 279)
-		{
-			x_line_u = 101;
-		}
-
-		// Y plot
-		BSP_LCD_DrawRect(290, 35, 180, 202);
-
-		BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
-		BSP_LCD_DrawVLine(x_line_y, 36, 200);
-		BSP_LCD_DrawPixel(x_line_y, 236 - (int)(2*y_process), LCD_COLOR_RED);
-		BSP_LCD_SetTextColor(LCD_COLOR_BLACK);
-		BSP_LCD_DrawVLine(x_line_y + 1, 36, 200);
-
-		x_line_y++;
-		if (x_line_y > 469)
-		{
-			x_line_y = 291;
-		}
 	}
 	if (htim->Instance == TIM3){ // timer odpowiedzialny za aktualizacje MB i odliczanie timeout'u
 		MB();
@@ -421,6 +456,54 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		Timer50usTick();
 	}
 	if (htim->Instance == TIM5){ // ...
+		// Button
+		if(TS_State.touchDetected > 0)
+		{
+		  int lastx = TS_State.touchX[0];
+		  int lasty = TS_State.touchY[0];
+
+		  if (lastx > 10 && lastx < 90 && lasty > 220 && lasty < 262) // button
+		  {
+			if (!last_click_auto)
+			{
+				auto_clicked = !auto_clicked;
+				last_click_auto = true;
+			}
+		  }
+
+		  if (lastx > 10 && lastx < 90 && lasty > 35 && lasty < 210) // slider
+		  {
+			if (auto_clicked)
+			{
+			  set_value = (210 - lasty) / 1.75;
+			  updateYZad();
+			  DrawSliderYzad(lasty);
+			}
+			else
+			{
+			  u_process = (122 - lasty) / 1.75;
+			  DrawSliderU(lasty);
+			}
+		  }
+		}
+
+	    if (last_click_auto && TS_State.touchDetected == 0)
+	    {
+		  last_click_auto = false;
+	    }
+
+		if (auto_clicked)
+		{
+			BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
+				BSP_LCD_FillRect(11, 221, 79, 41);
+		  DrawButtonGreen();
+		}
+		else
+		{
+			BSP_LCD_SetTextColor(LCD_COLOR_WHITE);
+			BSP_LCD_FillRect(11, 221, 79, 41);
+		  DrawButtonGray();
+		}
 	}
 }
 /* USER CODE END 0 */
@@ -959,7 +1042,7 @@ static void MX_TIM5_Init(void)
   htim5.Instance = TIM5;
   htim5.Init.Prescaler = 10800-1;
   htim5.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim5.Init.Period = 10000;
+  htim5.Init.Period = 200;
   htim5.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim5.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim5) != HAL_OK)
